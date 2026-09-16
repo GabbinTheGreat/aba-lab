@@ -35,6 +35,27 @@
   .card .who{margin-top:7px;font-size:11.5px;color:var(--muted);word-break:break-word}
   .card .due{margin-top:4px;font-size:11.5px;font-weight:600;color:#cf222e}
   .card .due.future{color:var(--muted);font-weight:500}
+  .meta-row{margin-top:6px;display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+  .pill{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:999px}
+  .pill.eta{background:#eef1f4;color:#444c56;border:1px solid var(--line)}
+  .pill.eta b{color:#444c56}
+  .pill.stage-to_do{background:#eef1f4;color:#444c56;border:1px solid var(--line)}
+  .pill.stage-in_progress{background:#ddf4ff;color:#0969da;border:1px solid #c8e5fc}
+  .pill.stage-waiting{background:#fff8c5;color:#7d4e00;border:1px solid #f5e0a3}
+  .pill.stage-done{background:#e6f6e9;color:#1a7f37;border:1px solid #bce4c4}
+  .upd{margin-top:8px;border-top:1px dashed var(--line);padding-top:7px}
+  .upd-h{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:3px}
+  .upd ul{margin:0;padding-left:16px;font-size:12px;line-height:1.5;color:#3d444d;max-height:120px;overflow-y:auto}
+  .upd li{margin:2px 0;word-break:break-word}
+  .upd time{color:var(--muted);font-size:10.5px;margin-right:6px;font-variant-numeric:tabular-nums}
+  .reqbox{margin:2px 22px 10px;border:1px dashed var(--line);border-radius:10px;padding:12px 14px;background:var(--card)}
+  .reqbox h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 5px}
+  .reqbox p{margin:0 0 9px;color:var(--muted);font-size:12px}
+  .reqbox textarea{width:100%;min-height:64px;resize:vertical;background:#fff;border:1px solid var(--line);border-radius:7px;color:var(--ink);font:13px inherit;padding:8px 10px;outline:none}
+  .reqbox textarea:focus{border-color:var(--accent)}
+  .reqbox .reqrow{display:flex;align-items:center;gap:10px;margin-top:9px;flex-wrap:wrap}
+  .reqbox .reqrow button{appearance:none;border:0;background:var(--accent);color:#fff;font:600 12.5px inherit;padding:8px 15px;border-radius:7px;cursor:pointer}
+  .reqbox .reqrow .hint{color:var(--muted);font-size:11px}
   .notes{margin-top:8px;font-size:12px;color:#3d444d;border-top:1px dashed var(--line);padding-top:8px;max-height:150px;overflow-y:auto}
   .notes p{margin:0 0 6px}.notes p:last-child{margin-bottom:0}
   .notes ul,.notes ol{margin:4px 0 6px;padding-left:18px}
@@ -76,7 +97,7 @@
       <button type="submit" id="gate-btn">Unlock</button>
     </form>
     <div class="gate-err" id="gate-err"></div>
-    <div class="gate-ver">gate v3 · status shows under the button</div>
+    <div class="gate-ver">gate v4 · stages + ETA + updates</div>
   </div>
 </div>
 
@@ -87,6 +108,15 @@
 </header>
 <div class="chips" id="chips"></div>
 <div class="board" id="board"></div>
+<div class="reqbox">
+  <h2>Request a task / add a note</h2>
+  <p>Missed something, or need a card added, fixed, or updated? Write it here — pressing the button opens your email app with a ready-to-send message to Gabriel. Nothing is sent until you press it.</p>
+  <textarea id="req-note" placeholder="e.g. “The DICOM transfer card — the folder is now on the shared drive, can be marked done” or a brand-new task you think was missed…"></textarea>
+  <div class="reqrow">
+    <button id="req-send" type="button">Email this to Gabriel</button>
+    <span class="hint">ETA on cards is shown as “~date” = approximate, not a commitment.</span>
+  </div>
+</div>
 <footer id="foot">Loading…</footer>
 </div>
 <script>
@@ -130,15 +160,38 @@ const COLS=[
   {key:"rejected",      label:"Rejected",        color:"var(--rej)", hidden:true},
 ];
 let showHidden=false, data=null, unlockedKey=null;
+const STAGE_LABELS={to_do:"To do",in_progress:"In progress",waiting:"Waiting",done:"Done"};
+function fmtEta(d){
+  if(!d) return null;
+  const m=String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(!m) return String(d);
+  const dt=new Date(+m[1],+m[2]-1,+m[3]);
+  return isNaN(dt)?String(d):dt.toLocaleDateString(undefined,{month:"short",day:"numeric"});
+}
 function cardHtml(t){
   const tags=(t.suggested_labels||[]).map(l=>`<span class="tag ${/^(urgent|needs-input)$/i.test(l)?l:""}">${esc(l)}</span>`).join("");
   const due=t.due_date?`<div class="due ${new Date(t.due_date)>=new Date()?"future":""}">Due: ${esc(t.due_date.slice(0,10))} (${rel(t.due_date)})</div>`:"";
   const who=[t.from,t.source].filter(Boolean).map(esc).join(" · ");
   const rn=(t.status==="needs_revision"&&t.review_note)?`<div class="notes"><em>Feedback:</em> ${md(t.review_note)}</div>`:"";
+  // Stage + ETA pills (approved cards)
+  const stage=t.stage?STAGE_LABELS[t.stage]||t.stage:"To do";
+  const meta=(t.status==="approved"||t.status==="needs_revision")
+    ? `<div class="meta-row">`+
+      (t.eta?`<span class="pill eta" title="Approximate ETA — not exact">ETA ~<b>${esc(fmtEta(t.eta))}</b></span>`:"")+
+      `<span class="pill stage-${esc(t.stage||"to_do")}">${esc(stage)}</span>`+
+      `</div>`
+    : "";
+  // Updates log (newest last, like a journal)
+  const ups=(t.updates||[]).slice().sort();
+  const upd=ups.length?`<div class="upd"><div class="upd-h">Updates</div><ul>`+
+    ups.map(u=>{
+      const m=u.match(/^(\S+)\s+([\s\S]*)$/);
+      return m?`<li><time datetime="${esc(m[1])}">${esc(m[1].slice(0,10))}</time>${md(m[2])}</li>`:`<li>${md(u)}</li>`;
+    }).join("")+`</ul></div>`:"";
   return `<div class="card"><div class="title">${esc(t.title)}</div>`+
-    (tags?`<div class="tags">${tags}</div>`:"")+due+
+    (tags?`<div class="tags">${tags}</div>`:"")+due+meta+
     (who?`<div class="who">${who}</div>`:"")+
-    (t.notes?`<div class="notes">${md(t.notes)}</div>`:"")+rn+"</div>";
+    (t.notes?`<div class="notes">${md(t.notes)}</div>`:"")+rn+upd+"</div>";
 }
 function render(){
   const board=document.getElementById("board"), chips=document.getElementById("chips");
@@ -191,6 +244,15 @@ function gateMsg(txt){ document.getElementById("gate-err").textContent=txt; }
 window.addEventListener("error",(ev)=>{
   const e=document.getElementById("gate-err");
   if(e) e.textContent="Page error: "+(ev.message||"unknown")+" — reload the page and try again.";
+});
+// request box → mailto (public site has no backend; Gabe gets it in his inbox)
+const reqNote=document.getElementById("req-note"), reqSend=document.getElementById("req-send");
+reqSend.addEventListener("click",()=>{
+  const txt=reqNote.value.trim();
+  if(!txt){ reqNote.focus(); return; }
+  const subject=encodeURIComponent("ABA task queue — request/note");
+  const body=encodeURIComponent("Sent from the ABA task queue board.\n\n"+txt);
+  window.location.href="mailto:ghabeeb@asu.edu?subject="+subject+"&body="+body;
 });
 document.getElementById("gate-form").addEventListener("submit", async (e)=>{
   e.preventDefault();
