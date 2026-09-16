@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ABA Lab — Task Queue</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --card:#ffffff; --ink:#1c2128; --muted:#6a737d; --line:#e2e6ea;
+    --accent:#0969da; --pend:#d4a72c; --rev:#cf222e; --appr:#1a7f37; --done:#57606a; --rej:#8b949e;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.5 -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+  header{background:var(--card);border-bottom:1px solid var(--line);padding:14px 22px;display:flex;flex-wrap:wrap;align-items:baseline;gap:10px}
+  header h1{font-size:17px;margin:0;font-weight:650}
+  header .sub{color:var(--muted);font-size:12.5px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;padding:14px 22px 0}
+  .chip{display:inline-flex;align-items:center;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:12.5px;cursor:pointer;user-select:none;color:var(--muted)}
+  .chip.on{border-color:var(--accent);color:var(--accent);font-weight:600}
+  .chip .dot{width:8px;height:8px;border-radius:50%}
+  .board{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;padding:14px 22px 30px;align-items:start}
+  .col{background:transparent}
+  .col h2{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:4px 2px 8px;display:flex;justify-content:space-between}
+  .col h2 .n{background:var(--card);border:1px solid var(--line);border-radius:999px;padding:0 8px;font-size:11px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:11px 13px;margin-bottom:10px;box-shadow:0 1px 2px rgba(27,31,36,.04)}
+  .card .title{font-weight:600;font-size:13.5px;word-break:break-word}
+  .card .tags{margin-top:6px;display:flex;flex-wrap:wrap;gap:4px}
+  .tag{font-size:10.5px;font-weight:600;padding:1px 8px;border-radius:999px;background:#eef1f4;color:#444c56;border:1px solid var(--line)}
+  .tag.urgent{background:#ffebe9;color:#cf222e;border-color:#ffd7d5}
+  .tag.needs-input{background:#fff8c5;color:#7d4e00;border-color:#f5e0a3}
+  .card .who{margin-top:7px;font-size:11.5px;color:var(--muted);word-break:break-word}
+  .card .due{margin-top:4px;font-size:11.5px;font-weight:600;color:#cf222e}
+  .card .due.future{color:var(--muted);font-weight:500}
+  .notes{margin-top:8px;font-size:12px;color:#3d444d;border-top:1px dashed var(--line);padding-top:8px;max-height:150px;overflow-y:auto}
+  .notes p{margin:0 0 6px}.notes p:last-child{margin-bottom:0}
+  .notes ul,.notes ol{margin:4px 0 6px;padding-left:18px}
+  .notes h1,.notes h2,.notes h3,.notes h4{font-size:12px;margin:6px 0 3px;font-weight:700}
+  .notes code{background:#eef1f4;border-radius:4px;padding:0 4px;font-size:11px}
+  .notes pre{background:#f0f2f4;border-radius:6px;padding:8px;overflow-x:auto;font-size:11px}
+  .notes a{color:var(--accent);text-decoration:none}
+  footer{padding:0 22px 26px;color:var(--muted);font-size:11.5px}
+  .empty{color:var(--muted);font-size:12.5px;padding:14px 4px;font-style:italic}
+  @media print{.chips{display:none}.card{break-inside:avoid}}
+
+  /* gate */
+  .gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+  .gate-card{background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 4px 18px rgba(27,31,36,.08);padding:30px 30px 26px;width:100%;max-width:380px;text-align:center}
+  .gate-card .lock{width:46px;height:46px;border-radius:50%;background:#eef1f4;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;color:var(--accent)}
+  .gate-card h2{margin:0 0 4px;font-size:18px;font-weight:650}
+  .gate-card p{margin:0 0 18px;color:var(--muted);font-size:12.5px}
+  .gate-card form{display:flex;gap:8px}
+  .gate-card input[type=password]{flex:1;padding:9px 11px;border:1px solid var(--line);border-radius:7px;font-size:13.5px}
+  .gate-card button{padding:9px 16px;border:0;border-radius:7px;background:var(--accent);color:#fff;font-size:13.5px;font-weight:600;cursor:pointer}
+  .gate-card button:disabled{opacity:.6;cursor:default}
+  .gate-err{margin-top:12px;color:var(--rev);font-size:12px;min-height:16px}
+</style>
+</head>
+<body>
+
+<!-- gate: shown until a correct password decrypts the queue -->
+<div class="gate" id="gate">
+  <div class="gate-card">
+    <div class="lock">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+    </div>
+    <h2>ABA Lab — Task Queue</h2>
+    <p>Enter the shared lab password to view the board.</p>
+    <form id="gate-form" autocomplete="off">
+      <input type="password" id="gate-pw" placeholder="Password" autofocus>
+      <button type="submit" id="gate-btn">Unlock</button>
+    </form>
+    <div class="gate-err" id="gate-err"></div>
+  </div>
+</div>
+
+<div id="app" hidden>
+<header>
+  <h1>ABA Lab — Task Queue</h1>
+  <span class="sub">Auto-maintained from the lab task system · read-only view</span>
+</header>
+<div class="chips" id="chips"></div>
+<div class="board" id="board"></div>
+<footer id="foot">Loading…</footer>
+</div>
+<script>
+// ── small, escape-first markdown (headings, bold, italic, code, links, lists) ──
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function md(src){
+  if(!src) return "";
+  let t = esc(src);
+  t = t.replace(/```([\s\S]*?)```/g,(_,c)=>"<pre>"+c.replace(/^\n/,"")+"</pre>");
+  t = t.replace(/`([^`\n]+)`/g,"<code>$1</code>");
+  t = t.replace(/\*\*([^*\n]+)\*\*/g,"<strong>$1</strong>");
+  t = t.replace(/(^|[^*])\*([^*\n]+)\*/g,"$1<em>$2</em>");
+  t = t.replace(/^######?\s?(.*)$/gm,"<h4>$1</h4>")
+       .replace(/^#####\s?(.*)$/gm,"<h4>$1</h4>")
+       .replace(/^####\s?(.*)$/gm,"<h3>$1</h3>")
+       .replace(/^###\s?(.*)$/gm,"<h3>$1</h3>")
+       .replace(/^##\s?(.*)$/gm,"<h2>$1</h2>")
+       .replace(/^#\s?(.*)$/gm,"<h1>$1</h1>");
+  t = t.replace(/^\s*[-*]\s+(.*)$/gm,"<li>$1</li>");
+  t = t.replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g,"<ul>$1</ul>");
+  t = t.replace(/^\s*\d+\.\s+(.*)$/gm,"<li>$1</li>");
+  t = t.replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g,m=>m.replace(/<ul>/g,"<ol>").replace(/<\/ul>/g,"</ol>"));
+  t = t.replace(/\[([^\]\n]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+  t = t.replace(/(^|\s)(https?:\/\/[^\s<]+)/g,'$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+  t = t.split(/\n{2,}/).map(b=>/^<(h\d|ul|ol|pre)/.test(b.trim())?b:"<p>"+b.replace(/\n/g,"<br>")+"</p>").join("");
+  return t;
+}
+function rel(ts){
+  if(!ts) return "";
+  const d=new Date(ts), now=new Date();
+  if(isNaN(d)) return "";
+  const diff=(now-d)/864e5;
+  if(Math.abs(diff)<1){ const h=Math.round((now-d)/36e5); return h===0?"today":h<0?`tomorrow (in ${-h}h)`:`${h}h ago`; }
+  if(diff<0) return `in ${Math.round(-diff)}d`;
+  return `overdue by ${Math.round(diff)}d`;
+}
+const COLS=[
+  {key:"pending",       label:"Pending review",  color:"var(--pend)"},
+  {key:"needs_revision",label:"Needs revision",  color:"var(--rev)"},
+  {key:"approved",      label:"Approved / in queue", color:"var(--appr)"},
+  {key:"rejected",      label:"Rejected",        color:"var(--rej)", hidden:true},
+];
+let showHidden=false, data=null, unlockedKey=null;
+function cardHtml(t){
+  const tags=(t.suggested_labels||[]).map(l=>`<span class="tag ${/^(urgent|needs-input)$/i.test(l)?l:""}">${esc(l)}</span>`).join("");
+  const due=t.due_date?`<div class="due ${new Date(t.due_date)>=new Date()?"future":""}">Due: ${esc(t.due_date.slice(0,10))} (${rel(t.due_date)})</div>`:"";
+  const who=[t.from,t.source].filter(Boolean).map(esc).join(" · ");
+  const rn=(t.status==="needs_revision"&&t.review_note)?`<div class="notes"><em>Feedback:</em> ${md(t.review_note)}</div>`:"";
+  return `<div class="card"><div class="title">${esc(t.title)}</div>`+
+    (tags?`<div class="tags">${tags}</div>`:"")+due+
+    (who?`<div class="who">${who}</div>`:"")+
+    (t.notes?`<div class="notes">${md(t.notes)}</div>`:"")+rn+"</div>";
+}
+function render(){
+  const board=document.getElementById("board"), chips=document.getElementById("chips");
+  const by={}; data.tasks.forEach(t=>{(by[t.status]=by[t.status]||[]).push(t);});
+  chips.innerHTML=COLS.filter(c=>!c.hidden||showHidden).map(c=>{
+    const n=(by[c.key]||[]).length;
+    return `<span class="chip"><span class="dot" style="background:${c.color}"></span>${c.label}: ${n}</span>`;
+  }).join("")+`<span class="chip ${showHidden?"on":""}" data-k="__toggle">${showHidden?"Hide":"Show"} rejected</span>`;
+  const tog=chips.querySelector('[data-k="__toggle"]');
+  if(tog) tog.onclick=()=>{showHidden=!showHidden;render();};
+  board.innerHTML=COLS.filter(c=>!c.hidden||showHidden).map(c=>{
+    const items=(by[c.key]||[]).sort((a,b)=>(a.due_date||"9999").localeCompare(b.due_date||"9999"));
+    return `<div class="col"><h2>${c.label}<span class="n">${items.length}</span></h2>`+
+      (items.length?items.map(cardHtml).join(""):`<div class="empty">—</div>`)+`</div>`;
+  }).join("");
+  document.getElementById("foot").textContent =
+    `Last updated: ${data.generated_at?new Date(data.generated_at).toUTCString():"unknown"} · ${data.summary.total} total tasks · updates automatically`;
+}
+
+// ── shared-password gate (AES-256-GCM in the browser via WebCrypto) ──
+// The public repo holds only ciphertext (data.enc). The salt is public (not
+// secret); the password is the secret. Params must match publish_site.py.
+const SALT_B64 = "nCUPglQpNLdqJRUXqMnQQA==";
+const ITERS = 600000;
+function b64ToBytes(b64){
+  const bin=atob(b64), out=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) out[i]=bin.charCodeAt(i);
+  return out;
+}
+async function deriveKey(password){
+  const material=await crypto.subtle.importKey("raw",
+    new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    {name:"PBKDF2", salt:b64ToBytes(SALT_B64), iterations:ITERS, hash:"SHA-256"},
+    material, {name:"AES-GCM", length:256}, false, ["decrypt"]);
+}
+async function decryptPage(enc,key){
+  const raw=b64ToBytes(enc.trim());
+  const pt=await crypto.subtle.decrypt({name:"AES-GCM", iv:raw.slice(0,12)}, key, raw.slice(12));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+async function fetchAndDecrypt(key){
+  const r=await fetch("data.enc",{cache:"no-store"});
+  if(!r.ok) throw new Error("HTTP "+r.status);
+  return decryptPage(await r.text(),key);
+}
+document.getElementById("gate-form").addEventListener("submit", async (e)=>{
+  e.preventDefault();
+  const pw=document.getElementById("gate-pw").value;
+  const err=document.getElementById("gate-err"), btn=document.getElementById("gate-btn");
+  err.textContent=""; btn.disabled=true; btn.textContent="…";
+  try{
+    const key=await deriveKey(pw);
+    data=await fetchAndDecrypt(key);
+    unlockedKey=key;
+    document.getElementById("gate").hidden=true;
+    document.getElementById("app").hidden=false;
+    render();
+  }catch(_){
+    data=null; unlockedKey=null;
+    err.textContent="Incorrect password.";
+    document.getElementById("gate-pw").value="";
+    document.getElementById("gate-pw").focus();
+  }finally{
+    btn.disabled=false; btn.textContent="Unlock";
+  }
+});
+// keep board fresh once unlocked (re-decrypts each cycle)
+setInterval(async ()=>{
+  if(!unlockedKey) return;
+  try{ data=await fetchAndDecrypt(unlockedKey); render(); }catch(_){}
+},60000);
+
+</script>
+</body>
+</html>
