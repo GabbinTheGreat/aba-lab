@@ -11,11 +11,3 @@ approved, rejected, or revised (and on an hourly refresh).
 ## Site
 
 Served by GitHub Pages at `https://GabbinTheGreat.github.io/aba-lab/`.
-
-## One-time activation (Gabe)
-
-1. Make the repo **Public** — Settings → *Danger zone* → *Change visibility*
-   → Public. (GitHub Pages on a free account only serves public repos.)
-2. Settings → **Pages** → Source: **Deploy from a branch** → branch `main`,
-   folder `/(root)` → Save.
-3. Site is live at the URL above within ~2 minutes.
