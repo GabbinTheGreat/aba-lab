@@ -56,6 +56,16 @@
   .reqbox .reqrow{display:flex;align-items:center;gap:10px;margin-top:9px;flex-wrap:wrap}
   .reqbox .reqrow button{appearance:none;border:0;background:var(--accent);color:#fff;font:600 12.5px inherit;padding:8px 15px;border-radius:7px;cursor:pointer}
   .reqbox .reqrow .hint{color:var(--muted);font-size:11px}
+  .reqform{display:flex;flex-direction:column;gap:9px;margin-top:4px}
+  .reqform label{font-size:11.5px;color:var(--muted);display:flex;flex-direction:column;gap:3px}
+  .reqform select,.reqform input,.reqform textarea{width:100%;background:#fff;border:1px solid var(--line);border-radius:7px;color:var(--ink);font:13px inherit;padding:8px 10px;outline:none}
+  .reqform select:focus,.reqform input:focus,.reqform textarea:focus{border-color:var(--accent)}
+  .reqform textarea{min-height:64px;resize:vertical}
+  .reqform .req-group{border:0;margin:0;padding:0;display:flex;flex-direction:column;gap:9px}
+  .reqform .req-group[hidden]{display:none !important}
+  .reqform .req-eta-label{flex-direction:row;align-items:center;gap:8px}
+  .reqform .req-actions{align-items:flex-end}
+  .req-task-label[hidden]{display:none !important}
   .notes{margin-top:8px;font-size:12px;color:#3d444d;border-top:1px dashed var(--line);padding-top:8px;max-height:150px;overflow-y:auto}
   .notes p{margin:0 0 6px}.notes p:last-child{margin-bottom:0}
   .notes ul,.notes ol{margin:4px 0 6px;padding-left:18px}
@@ -110,11 +120,37 @@
 <div class="board" id="board"></div>
 <div class="reqbox">
   <h2>Request a task / add a note</h2>
-  <p>Missed something, or need a card added, fixed, or updated? Write it here — pressing the button opens your email app with a ready-to-send message to Gabriel. Nothing is sent until you press it.</p>
-  <textarea id="req-note" placeholder="e.g. “The DICOM transfer card — the folder is now on the shared drive, can be marked done” or a brand-new task you think was missed…"></textarea>
-  <div class="reqrow">
-    <button id="req-send" type="button">Email this to Gabriel</button>
-    <span class="hint">ETA on cards is shown as “~date” = approximate, not a commitment.</span>
+  <p>Missed something, or need a card added, fixed, or updated? Fill this in — pressing the button opens your email app with a ready-to-send message to Gabriel. Nothing is sent until you press it.</p>
+  <div class="reqform">
+    <div class="reqrow req-actions">
+      <label>Action
+        <select id="req-action">
+          <option value="new">New task (was missed or doesn't exist yet)</option>
+          <option value="update">Update to an existing task</option>
+          <option value="done">Mark a task as done</option>
+        </select>
+      </label>
+      <label class="req-task-label" hidden>Which task
+        <select id="req-task"><option value="">— select a task —</option></select>
+      </label>
+    </div>
+    <input id="req-from" placeholder="Your name (optional)">
+    <fieldset class="req-group" id="req-group-new">
+      <input id="req-title" placeholder="Short task title">
+      <textarea id="req-notes" placeholder="What should happen, links, owners, deadlines…"></textarea>
+      <label class="req-eta-label">Approx. ETA (optional) <input id="req-eta" type="date"></label>
+    </fieldset>
+    <fieldset class="req-group" id="req-group-update" hidden>
+      <textarea id="req-update" placeholder="What changed / what to fix (be specific; quote the fix if possible)"></textarea>
+      <label class="req-eta-label">Approx. ETA (optional) <input id="req-eta2" type="date"></label>
+    </fieldset>
+    <fieldset class="req-group" id="req-group-done" hidden>
+      <textarea id="done-note" placeholder="Optional: what was done (e.g. where the result lives)"></textarea>
+    </fieldset>
+    <div class="reqrow">
+      <button id="req-send" type="button">Email this to Gabriel</button>
+      <span class="hint">ETA on cards is shown as “~date” = approximate, not a commitment.</span>
+    </div>
   </div>
 </div>
 <footer id="foot">Loading…</footer>
@@ -209,6 +245,7 @@ function render(){
   }).join("");
   document.getElementById("foot").textContent =
     `Last updated: ${data.generated_at?new Date(data.generated_at).toUTCString():"unknown"} · ${data.summary.total} total tasks · updates automatically`;
+  fillTaskPicker();
 }
 
 // ── shared-password gate (AES-256-GCM in the browser via WebCrypto) ──
@@ -245,15 +282,71 @@ window.addEventListener("error",(ev)=>{
   const e=document.getElementById("gate-err");
   if(e) e.textContent="Page error: "+(ev.message||"unknown")+" — reload the page and try again.";
 });
-// request box → mailto (public site has no backend; Gabe gets it in his inbox)
-const reqNote=document.getElementById("req-note"), reqSend=document.getElementById("req-send");
-reqSend.addEventListener("click",()=>{
-  const txt=reqNote.value.trim();
-  if(!txt){ reqNote.focus(); return; }
-  const subject=encodeURIComponent("ABA task queue — request/note");
-  const body=encodeURIComponent("Sent from the ABA task queue board.\n\n"+txt);
-  window.location.href="mailto:ghabeeb@asu.edu?subject="+subject+"&body="+body;
+// structured request form → mailto (public site has no backend; Gabe gets it in his inbox)
+const reqAction=document.getElementById("req-action"),
+      reqTask=document.getElementById("req-task"),
+      reqTaskLabel=document.querySelector(".req-task-label"),
+      reqFrom=document.getElementById("req-from"),
+      reqTitle=document.getElementById("req-title"),
+      reqNotes=document.getElementById("req-notes"),
+      reqEta=document.getElementById("req-eta"),
+      reqUpdate=document.getElementById("req-update"),
+      reqEta2=document.getElementById("req-eta2"),
+      doneNote=document.getElementById("done-note"),
+      reqSend=document.getElementById("req-send");
+const REQ_GROUPS={new:"req-group-new",update:"req-group-update",done:"req-group-done"};
+function refreshReqForm(){
+  const a=reqAction.value;
+  for(const k of Object.keys(REQ_GROUPS)){
+    document.getElementById(REQ_GROUPS[k]).hidden=(k!==a);
+  }
+  reqTaskLabel.hidden=(a==="new");
+}
+if(reqAction) reqAction.addEventListener("change",refreshReqForm);
+function fillTaskPicker(){
+  if(!reqTask||!data||!Array.isArray(data.tasks)) return;
+  const cur=reqTask.value;
+  reqTask.innerHTML='<option value="">— select a task —</option>'+
+    data.tasks.map(t=>`<option value="${esc(t.id)}">${esc(t.title)}</option>`).join("");
+  if(cur) reqTask.value=cur;
+}
+// ABA-QUEUE v1 structured mailto template
+if(reqSend) reqSend.addEventListener("click",()=>{
+  const a=reqAction.value;
+  const from=(reqFrom.value||"").trim()||"board visitor";
+  let task_id="N/A", task_title="N/A";
+  if(a!=="new"){
+    if(!reqTask.value){ alert("Please select a task first."); reqTask.focus(); return; }
+    task_id=reqTask.value;
+    const t=data&&data.tasks?data.tasks.find(x=>String(x.id)===String(reqTask.value)):null;
+    task_title=t?String(t.title):"N/A";
+  }
+  const title=(reqTitle.value||"").trim();
+  if(a==="new"&&!title){ alert("Please enter a short task title."); reqTitle.focus(); return; }
+  const notes=(reqNotes.value||"").trim();
+  const update=(reqUpdate.value||"").trim();
+  const done=(doneNote.value||"").trim();
+  const eta=(a==="new"?reqEta.value:a==="update"?reqEta2.value:"")||"N/A";
+  const group=document.getElementById(REQ_GROUPS[a]);
+  const raw=group?Array.from(group.querySelectorAll("textarea")).map(t=>t.value).join("\n"):"";
+  const subject="ABA task queue — "+(a==="new"?"NEW TASK":a==="update"?"TASK UPDATE":"TASK DONE");
+  const body=
+    "[ABA-QUEUE v1]\n"+
+    "action: "+a+"\n\n"+
+    "-- TASK --\n"+
+    "task_id: "+task_id+"\n"+
+    "task_title: "+task_title+"\n"+
+    "from: "+from+"\n\n"+
+    "-- DETAILS --\n"+
+    "title: "+(a==="new"?(title||"N/A"):"N/A")+"\n"+
+    "notes: "+(a==="new"?(notes||"N/A"):"N/A")+"\n"+
+    "update: "+(a==="update"?(update||"N/A"):"N/A")+"\n"+
+    "done_note: "+(a==="done"?(done||"N/A"):"N/A")+"\n"+
+    "eta: "+eta+"\n\n"+
+    "-- RAW --\n"+(raw||"");
+  window.location.href="mailto:ghabeeb@asu.edu?subject="+encodeURIComponent(subject)+"&body="+encodeURIComponent(body);
 });
+refreshReqForm();
 document.getElementById("gate-form").addEventListener("submit", async (e)=>{
   e.preventDefault();
   const pw=document.getElementById("gate-pw").value.trim();
