@@ -256,7 +256,7 @@ reqSend.addEventListener("click",()=>{
 });
 document.getElementById("gate-form").addEventListener("submit", async (e)=>{
   e.preventDefault();
-  const pw=document.getElementById("gate-pw").value;
+  const pw=document.getElementById("gate-pw").value.trim();
   const err=document.getElementById("gate-err"), btn=document.getElementById("gate-btn");
   err.textContent="Checking…"; btn.disabled=true; btn.textContent="…";
   try{
@@ -273,7 +273,8 @@ document.getElementById("gate-form").addEventListener("submit", async (e)=>{
     const m=String(ex&&ex.message||ex);
     if(/AbortError/i.test(m)) err.textContent="Timed out loading board data — check your connection and try again.";
     else if(/^HTTP \d{3}/.test(m) && m!=="HTTP 404") err.textContent=m+" — the data file is missing; try again in a minute.";
-    else err.textContent="Incorrect password.";
+    else if(ex && ex.name==="OperationError") err.textContent="Incorrect password.";
+    else err.textContent="Couldn't unlock with that key: "+m+" — if the password is right, hard-reload (Ctrl/Cmd+Shift+R) and try again.";
     document.getElementById("gate-pw").value="";
     document.getElementById("gate-pw").focus();
   }finally{
